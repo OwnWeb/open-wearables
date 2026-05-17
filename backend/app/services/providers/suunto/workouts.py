@@ -285,15 +285,19 @@ class SuuntoWorkouts(BaseWorkoutsTemplate):
             params = {"extensions": ",".join(extensions)}
         return self._make_api_request(db, user_id, f"/v3/workouts/{workout_key}", params=params, headers=headers)
 
-    def _process_single_workout(self, db: DbSession, user_id: UUID, raw_workout: Any) -> None:
-        """Internal method to normalize and save a single workout.
-        Overridden to save device info first and ensure Pydantic model conversion.
+    def process_push_activity(self, db: DbSession, user_id: UUID, raw_workout: Any) -> UUID | None:
+        """Save a single workout received via the live webhook push path.
+
+        Mirrors the load_data backfill path: builds the record + detail bundle
+        and inserts both via event_record_service. create_detail schedules the
+        after_commit listener that fires the outgoing webhook (workout.created),
+        so consumers subscribed via Svix receive the new workout.
+
+        Returns the created event_record id, or None when the bundle was empty.
         """
-        # Convert dict to Pydantic model if needed
         if isinstance(raw_workout, dict):
             raw_workout = SuuntoWorkoutJSON(**raw_workout)
 
-        # Save device/data source info if available
         gear = raw_workout.gear or raw_workout.gear_from_summary_extension
         if gear:
             device_name = gear.displayName or gear.name
@@ -306,4 +310,10 @@ class SuuntoWorkouts(BaseWorkoutsTemplate):
                 source=self.provider_name,
             )
 
-        super()._process_single_workout(db, user_id, raw_workout)
+        for record, detail in self._build_bundles([raw_workout], user_id):
+            created_record = event_record_service.create(db, record)
+            detail_for_record = detail.model_copy(update={"record_id": created_record.id})
+            event_record_service.create_detail(db, detail_for_record)
+            return created_record.id
+
+        return None
