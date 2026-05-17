@@ -232,7 +232,14 @@ class SuuntoWebhookHandler(BaseWebhookHandler):
             )
             # `/v3/workouts/{workoutKey}` returns a single dict under 'payload'; `/v3/workouts` (sync) returns a list.
             payload_detail = raw_detail.get("payload", raw_detail) if isinstance(raw_detail, dict) else raw_detail
-            workouts_list = payload_detail if isinstance(payload_detail, list) else [payload_detail]
+            if isinstance(payload_detail, list):
+                workouts_list = payload_detail
+            elif isinstance(payload_detail, dict):
+                workouts_list = [payload_detail]
+            else:
+                raise ValueError(
+                    f"Unexpected Suunto workout payload shape: {type(payload_detail).__name__}"
+                )
             saved = 0
             for raw in workouts_list:
                 self.suunto_workouts._process_single_workout(db, user_id, raw)
