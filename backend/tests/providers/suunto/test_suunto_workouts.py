@@ -191,6 +191,42 @@ class TestSuuntoWorkouts:
         assert record.external_id == "123456789"
         assert record.user_id == user_id
 
+    def test_normalize_workout_prefers_workout_key_over_workout_id(
+        self,
+        suunto_workouts: SuuntoWorkouts,
+        sample_workout_data: dict,
+    ) -> None:
+        """Should set external_id to workoutKey when present (stable string id)."""
+        # Arrange
+        workout_data = sample_workout_data.copy()
+        workout_data["workoutKey"] = "6a09c4be78133870e3e5f654"
+        workout = SuuntoWorkoutJSON(**workout_data)
+        user_id = uuid4()
+
+        # Act
+        record, _ = suunto_workouts._normalize_workout(workout, user_id)
+
+        # Assert
+        assert record.external_id == "6a09c4be78133870e3e5f654"
+
+    def test_normalize_workout_falls_back_to_workout_id_when_key_absent(
+        self,
+        suunto_workouts: SuuntoWorkouts,
+        sample_workout_data: dict,
+    ) -> None:
+        """Should fall back to str(workoutId) when workoutKey is absent (older payloads)."""
+        # Arrange
+        workout_data = sample_workout_data.copy()
+        workout_data.pop("workoutKey", None)
+        workout = SuuntoWorkoutJSON(**workout_data)
+        user_id = uuid4()
+
+        # Act
+        record, _ = suunto_workouts._normalize_workout(workout, user_id)
+
+        # Assert
+        assert record.external_id == "123456789"
+
     def test_normalize_workout_without_device(
         self,
         suunto_workouts: SuuntoWorkouts,

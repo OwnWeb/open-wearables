@@ -101,6 +101,9 @@ class WorkoutJSON(BaseModel):
 
     workoutId: int
     activityId: int
+    # Stable string identifier used by /v3/workouts/{workoutKey}/* endpoints.
+    # Older sync responses may omit it, in which case callers fall back to str(workoutId).
+    workoutKey: str | None = None
 
     # Unix timestamp (ms)
     startTime: int
