@@ -57,6 +57,7 @@ class TestWebhookEmit:
         rid = uuid4()
         on_workout_created(
             record_id=rid,
+            external_id="abc123",
             user_id=uid,
             provider="garmin",
             device="Forerunner 255",
@@ -79,6 +80,7 @@ class TestWebhookEmit:
         assert args[0][1]["data"]["calories_kcal"] == 450.0
         assert args[0][1]["data"]["distance_meters"] == 10000.0
         assert args[0][1]["data"]["avg_heart_rate_bpm"] == 155
+        assert args[0][1]["data"]["external_id"] == "abc123"
 
     @patch("app.integrations.celery.tasks.emit_webhook_event_task.emit_webhook_event")
     def test_on_sleep_created_dispatches(self, mock_task: MagicMock) -> None:
