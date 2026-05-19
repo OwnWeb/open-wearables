@@ -186,3 +186,22 @@ class PolarWorkouts(BaseWorkoutsTemplate):
             "route": str(route).lower(),
         }
         return self._make_api_request(db, user_id, f"/v3/exercises/{exercise_id}", params=params)
+
+    def export_workout_fit(self, db: DbSession, user_id: UUID, workout_key: str) -> bytes:
+        """Download the raw FIT file for a Polar exercise.
+
+        Polar AccessLink exposes FIT via `/v3/exercises/{exerciseId}/fit`. Only
+        a subset of devices (typically Vantage, Grit, and newer Polar Flow
+        watches) actually return FIT bytes; older M-series watches respond
+        with 404. The exercise id stored in `event_record.external_id` is the
+        same hashed id used by this endpoint.
+        """
+        from app.config import settings
+
+        return self._make_api_request(
+            db,
+            user_id,
+            f"/v3/exercises/{workout_key}/fit",
+            response_format="bytes",
+            timeout_seconds=settings.suunto_fit_endpoint_timeout_seconds,
+        )

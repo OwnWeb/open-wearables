@@ -564,3 +564,44 @@ class TestPolarWorkoutsDataLoading:
 
         # Assert
         assert result == 0
+
+    @patch("app.services.providers.templates.base_workouts.make_authenticated_request")
+    def test_export_workout_fit_hits_v3_exercises_fit_endpoint(
+        self, mock_request: MagicMock, db: Session
+    ) -> None:
+        """export_workout_fit should call GET /v3/exercises/{id}/fit with bytes response."""
+        # Arrange
+        from app.models import EventRecord, User
+        from app.repositories.event_record_repository import EventRecordRepository
+        from app.repositories.user_connection_repository import UserConnectionRepository
+        from app.repositories.user_repository import UserRepository
+        from app.services.providers.polar.oauth import PolarOAuth
+
+        user = UserFactory()
+        UserConnectionFactory(user=user, provider="polar")
+        user_repo = UserRepository(User)
+        connection_repo = UserConnectionRepository()
+        workout_repo = EventRecordRepository(EventRecord)
+        oauth = PolarOAuth(
+            user_repo=user_repo,
+            connection_repo=connection_repo,
+            provider_name="polar",
+            api_base_url="https://www.polaraccesslink.com",
+        )
+        workouts = PolarWorkouts(
+            workout_repo=workout_repo,
+            connection_repo=connection_repo,
+            provider_name="polar",
+            api_base_url="https://www.polaraccesslink.com",
+            oauth=oauth,
+        )
+        mock_request.return_value = b"\x0e\x10polar-fit-bytes"
+
+        # Act
+        result = workouts.export_workout_fit(db, user.id, "exercise-hash-1")
+
+        # Assert
+        assert result == b"\x0e\x10polar-fit-bytes"
+        call_kwargs = mock_request.call_args[1]
+        assert call_kwargs["endpoint"] == "/v3/exercises/exercise-hash-1/fit"
+        assert call_kwargs["response_format"] == "bytes"

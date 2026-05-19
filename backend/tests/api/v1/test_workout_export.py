@@ -92,6 +92,13 @@ class TestWorkoutExportEndpoints:
         event_record = EventRecordFactory(data_source=data_source, external_id=WORKOUT_KEY, category="workout")
         return user, data_source, event_record
 
+    def _seed_polar_workout(self, db: Session) -> tuple:
+        """Create user + polar data_source + event_record."""
+        user = UserFactory()
+        data_source = DataSourceFactory(user=user, provider=ProviderName.POLAR, source="polar")
+        event_record = EventRecordFactory(data_source=data_source, external_id=WORKOUT_KEY, category="workout")
+        return user, data_source, event_record
+
     def test_export_json_unauthorized(self, client: TestClient, db: Session) -> None:
         """Test that missing API key returns 401."""
         # Arrange
@@ -362,3 +369,33 @@ class TestWorkoutExportEndpoints:
         put_mock.assert_called_once()
         _, kwargs = put_mock.call_args
         assert kwargs["sha256_hex"] == hashlib.sha256(FIT_BYTES).hexdigest()
+
+    def test_export_json_polar_happy_path(
+        self,
+        client: TestClient,
+        db: Session,
+        mock_fit_parser: MagicMock,
+        mock_fit_cache: MagicMock,
+        mock_raw_fit_storage: MagicMock,
+    ) -> None:
+        """Test that a Polar exercise dispatches via export_workout_fit."""
+        # Arrange
+        user, _, _ = self._seed_polar_workout(db)
+        api_key = ApiKeyFactory()
+
+        with patch("app.api.routes.v1.workout_export.factory") as mock_factory:
+            mock_strategy = MagicMock()
+            mock_strategy.workouts.export_workout_fit.return_value = FIT_BYTES
+            mock_factory.get_provider.return_value = mock_strategy
+
+            # Act
+            response = client.get(
+                f"/api/v1/users/{user.id}/workouts/{WORKOUT_KEY}/export",
+                headers={"X-Open-Wearables-API-Key": api_key.id},
+            )
+
+        # Assert
+        assert response.status_code == 200
+        body = response.json()
+        assert body["provider"] == "polar"
+        mock_factory.get_provider.assert_called_once_with("polar")
