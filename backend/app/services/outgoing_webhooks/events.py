@@ -62,6 +62,7 @@ def _dispatch(
 def on_workout_created(
     *,
     record_id: UUID,
+    external_id: str | None,
     user_id: UUID,
     provider: str,
     device: str | None,
@@ -83,6 +84,7 @@ def on_workout_created(
             "type": WebhookEventType.WORKOUT_CREATED,
             "data": {
                 "id": str(record_id),
+                "external_id": external_id,
                 "user_id": str(user_id),
                 "type": workout_type,
                 "start_time": start_time,

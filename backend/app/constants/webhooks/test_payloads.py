@@ -81,6 +81,7 @@ EXAMPLE_PAYLOADS: dict[str, dict] = {
         "type": WebhookEventType.WORKOUT_CREATED,
         "data": {
             "id": _RECORD_ID,
+            "external_id": "abc123",
             "user_id": _USER_ID,
             "type": "running",
             "start_time": "2024-01-01T08:00:00+00:00",

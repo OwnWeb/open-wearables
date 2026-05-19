@@ -283,6 +283,7 @@ Every payload envelope has `type` (the event name as a string) and `data`.
   "type": "workout.created",
   "data": {
     "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "external_id": "6f2a1c9e4b",
     "user_id": "550e8400-e29b-41d4-a716-446655440000",
     "type": "running",
     "start_time": "2025-12-19T07:30:00+01:00",
@@ -302,6 +303,10 @@ Every payload envelope has `type` (the event name as a string) and `data`.
   }
 }
 ```
+
+<Note>
+  `external_id` is the provider's own identifier for the workout, passed through unchanged. It is `null` for providers that expose none. Use it to address provider-side endpoints that key on it, such as the Suunto FIT export.
+</Note>
 
 <Note>
   Fields like `calories_kcal`, `distance_meters`, and heart-rate fields are `null` when the provider did not report them.

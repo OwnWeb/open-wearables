@@ -619,6 +619,7 @@ class EventRecordService(
                 )
                 on_workout_created(
                     record_id=record.id,
+                    external_id=record.external_id,
                     user_id=data_source.user_id,
                     provider=provider,
                     device=device,
