@@ -11,7 +11,7 @@ from app.schemas.model_crud.activities import (
     EventRecordCreate,
     EventRecordDetailCreate,
 )
-from app.services.providers.api_client import make_authenticated_request
+from app.services.providers.api_client import ResponseFormat, make_authenticated_request
 from app.services.providers.templates.base_oauth import BaseOAuthTemplate
 
 
@@ -150,6 +150,8 @@ class BaseWorkoutsTemplate(ABC):
         params: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
         json_data: dict[str, Any] | None = None,
+        response_format: ResponseFormat | None = None,
+        timeout_seconds: float = 30.0,
     ) -> Any:
         """Make authenticated request to vendor API."""
         return make_authenticated_request(
@@ -164,4 +166,6 @@ class BaseWorkoutsTemplate(ABC):
             params=params,
             headers=headers,
             json_data=json_data,
+            response_format=response_format,
+            timeout_seconds=timeout_seconds,
         )

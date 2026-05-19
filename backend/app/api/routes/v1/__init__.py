@@ -31,6 +31,7 @@ from .user_invitation_code import router as user_invitation_code_router
 from .users import router as users_router
 from .vendor_workouts import router as vendor_workouts_router
 from .webhooks import router as providers_webhooks_router
+from .workout_export import router as workout_export_router
 
 v1_router = APIRouter()
 
@@ -39,6 +40,7 @@ v1_router.include_router(users_router, tags=["External: Users"])
 v1_router.include_router(connections_router, tags=["External: Connections"])
 v1_router.include_router(summaries_router, tags=["External: Summaries"])
 v1_router.include_router(timeseries_router, tags=["External: Timeseries"])
+v1_router.include_router(workout_export_router, tags=["External: Workout Export"])
 v1_router.include_router(events_router, tags=["External: Events"])
 v1_router.include_router(health_scores_router, tags=["External: Health Scores"])
 v1_router.include_router(oauth_router, prefix="/oauth")

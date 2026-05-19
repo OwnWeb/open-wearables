@@ -97,6 +97,23 @@ class EventRecordRepository(
             query = query.filter(DataSource.provider == provider)
         return query.one_or_none()
 
+    def get_with_data_source_by_external_id(
+        self,
+        db_session: DbSession,
+        user_id: UUID,
+        external_id: str,
+    ) -> tuple[EventRecord, DataSource] | None:
+        """Find an EventRecord plus its DataSource for a user."""
+        row = (
+            db_session.query(self.model, DataSource)
+            .join(DataSource, self.model.data_source_id == DataSource.id)
+            .filter(DataSource.user_id == user_id, self.model.external_id == external_id)
+            .one_or_none()
+        )
+        if row is None:
+            return None
+        return row[0], row[1]
+
     def delete_by_external_id(
         self,
         db_session: DbSession,

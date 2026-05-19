@@ -3,7 +3,7 @@
 import logging
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 import httpx
@@ -13,6 +13,8 @@ from app.database import DbSession
 from app.repositories import UserConnectionRepository
 from app.services.providers.templates.base_oauth import BaseOAuthTemplate
 from app.utils.structured_logging import log_structured
+
+ResponseFormat = Literal["json", "bytes", "ignore"]
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +74,8 @@ def make_authenticated_request(
     headers: dict[str, str] | None = None,
     json_data: dict[str, Any] | None = None,
     expect_json: bool = True,
+    response_format: ResponseFormat | None = None,
+    timeout_seconds: float = 30.0,
 ) -> Any:
     """Make authenticated request to provider API.
 
@@ -89,22 +93,28 @@ def make_authenticated_request(
         params: Query parameters
         headers: Additional headers (Authorization header will be added automatically)
         json_data: JSON body for POST/PUT requests
-        expect_json: Whether to parse response as JSON (default True).
-            Set to False for endpoints that return empty bodies (e.g., 202 Accepted).
+        expect_json: Legacy flag (default True). When False maps to response_format="ignore".
+            Prefer response_format on new call sites.
+        response_format: "json" (parse + provider-error sniff), "bytes" (raw body), or
+            "ignore" (return {status_code, accepted}). Overrides expect_json when set.
+        timeout_seconds: httpx request timeout.
 
     Returns:
-        Any: API response JSON, or dict with status_code if expect_json=False
+        Any: parsed JSON, raw bytes, or {status_code, accepted} dict.
 
     Raises:
         HTTPException: If API request fails
     """
+    resolved_format: ResponseFormat = response_format or ("json" if expect_json else "ignore")
+
     # Get valid token (will auto-refresh if needed)
     access_token = _get_valid_token(db, user_id, provider_name, connection_repo, oauth)
 
     # Prepare headers
+    accept_header = "application/octet-stream" if resolved_format == "bytes" else "application/json"
     request_headers = {
         "Authorization": f"Bearer {access_token}",
-        "Accept": "application/json",
+        "Accept": accept_header,
     }
     if headers:
         request_headers.update(headers)
@@ -120,7 +130,7 @@ def make_authenticated_request(
                 headers=request_headers,
                 params=params or {},
                 json=json_data,
-                timeout=30.0,
+                timeout=timeout_seconds,
             )
 
             # Handle 429 rate limiting with retry
@@ -154,12 +164,14 @@ def make_authenticated_request(
 
             response.raise_for_status()
 
-            # Handle non-JSON responses (e.g., 202 Accepted with empty body)
-            if not expect_json:
+            if resolved_format == "ignore":
                 return {
                     "status_code": response.status_code,
                     "accepted": response.status_code == 202,
                 }
+
+            if resolved_format == "bytes":
+                return response.content
 
             result = response.json()
 

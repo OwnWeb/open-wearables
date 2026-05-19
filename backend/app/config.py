@@ -182,6 +182,13 @@ class Settings(BaseSettings):
     raw_payload_s3_prefix: str = "raw-payloads"
     raw_payload_s3_endpoint_url: str | None = None  # for S3-compatible storage (e.g. Railway Object Storage)
 
+    # WORKOUT FIT EXPORT
+    suunto_fit_endpoint_timeout_seconds: int = 10
+    persist_raw_fit: bool = False  # L2 toggle, off upstream
+    raw_fit_s3_prefix: str = "raw-fit"
+    fit_export_cache_ttl_seconds: int = 3600  # L1 Redis TTL
+    fit_export_max_fields: int = 16  # whitelist guard
+
     # SVIX WEBHOOK SETTINGS
     svix_server_url: str = "http://svix-server:8071"
     # Signing secret used by the Svix server to verify JWTs.  Must match SVIX_JWT_SECRET in docker-compose.

@@ -9,6 +9,7 @@ from celery.schedules import crontab
 
 from app.config import settings
 from app.services import raw_payload_storage
+from app.services.storage import raw_fit as raw_fit_storage
 
 _WEBHOOK_TASK = "emit_webhook_event_task.emit_webhook_event"
 
@@ -70,6 +71,12 @@ def init_raw_payload_storage(**kwargs) -> None:
         settings.raw_payload_max_size_bytes,
         s3_bucket=settings.raw_payload_s3_bucket or settings.aws_bucket_name,
         s3_prefix=settings.raw_payload_s3_prefix,
+        s3_endpoint_url=settings.raw_payload_s3_endpoint_url,
+    )
+    raw_fit_storage.configure(
+        enabled=settings.persist_raw_fit,
+        s3_bucket=settings.raw_payload_s3_bucket or settings.aws_bucket_name,
+        s3_prefix=settings.raw_fit_s3_prefix,
         s3_endpoint_url=settings.raw_payload_s3_endpoint_url,
     )
 

@@ -285,6 +285,20 @@ class SuuntoWorkouts(BaseWorkoutsTemplate):
             params = {"extensions": ",".join(extensions)}
         return self._make_api_request(db, user_id, f"/v3/workouts/{workout_key}", params=params, headers=headers)
 
+    def export_workout_fit(self, db: DbSession, user_id: UUID, workout_key: str) -> bytes:
+        """Download the raw FIT file for a workout via Suunto's exportFit endpoint."""
+        from app.config import settings
+
+        headers = self._get_suunto_headers()
+        return self._make_api_request(
+            db,
+            user_id,
+            f"/workout/exportFit/{workout_key}",
+            headers=headers,
+            response_format="bytes",
+            timeout_seconds=settings.suunto_fit_endpoint_timeout_seconds,
+        )
+
     def process_push_activity(self, db: DbSession, user_id: UUID, raw_workout: Any) -> UUID | None:
         """Save a single workout received via the live webhook push path.
 
