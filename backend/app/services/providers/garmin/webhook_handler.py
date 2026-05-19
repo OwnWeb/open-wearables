@@ -27,6 +27,7 @@ from app.services.providers.garmin.backfill_state import (
 )
 from app.services.providers.garmin.data_247 import Garmin247Data
 from app.services.providers.garmin.handlers.activities import process_activity_notification
+from app.services.providers.garmin.handlers.activity_files import process_activity_file_notification
 from app.services.providers.garmin.handlers.lifecycle import (
     process_deregistrations,
     process_user_permissions,
@@ -156,6 +157,7 @@ class GarminWebhookHandler(BaseWebhookHandler):
 
         # --- data processing ---------------------------------------------
         act_result = self._process_activities(db, payload, errors, synced_user_ids, users_with_new_success, trace_id)
+        act_files_result = self._process_activity_files(db, payload, errors, trace_id)
         well_result = self._process_wellness(db, payload, errors, synced_user_ids, users_with_new_success, trace_id)
 
         # --- commit + update last_synced_at ------------------------------
@@ -173,6 +175,7 @@ class GarminWebhookHandler(BaseWebhookHandler):
             "saved": act_result["saved_count"],
             "errors": errors,
             "activities": act_result["details"],
+            "activityFiles": act_files_result,
             "wellness": well_result,
             "backfill_chained": [],
         }
@@ -220,6 +223,33 @@ class GarminWebhookHandler(BaseWebhookHandler):
                 errors.append(result.get("error", "Unknown error"))
 
         return {"processed_count": processed_count, "saved_count": saved_count, "details": details}
+
+    def _process_activity_files(
+        self,
+        db: DbSession,
+        payload: dict[str, Any],
+        errors: list[str],
+        request_trace_id: str,
+    ) -> dict[str, Any]:
+        notifications = payload.get("activityFiles", [])
+        if not notifications:
+            return {"processed": 0, "saved": 0, "details": []}
+
+        processed = 0
+        saved = 0
+        details: list[dict[str, Any]] = []
+        for notification in notifications:
+            result = process_activity_file_notification(
+                db, self.connection_repo, self.garmin_workouts, notification, request_trace_id
+            )
+            details.append(result)
+            processed += 1
+            if result.get("status") == "saved":
+                saved += 1
+            elif result.get("status") in ("error", "fetch_failed", "user_not_found"):
+                errors.append(result.get("error", "Unknown error"))
+
+        return {"processed": processed, "saved": saved, "details": details}
 
     def _process_wellness(
         self,
@@ -318,4 +348,4 @@ class GarminWebhookHandler(BaseWebhookHandler):
         return backfill_triggered
 
     def supported_event_types(self) -> list[str]:
-        return ["activities", *WELLNESS_TYPES, "userPermissionsChange", "deregistrations"]
+        return ["activities", "activityFiles", *WELLNESS_TYPES, "userPermissionsChange", "deregistrations"]

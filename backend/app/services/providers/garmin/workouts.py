@@ -1,8 +1,11 @@
+import hashlib
 import logging
 from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any, Iterable
 from uuid import UUID, uuid4
+
+from fastapi import HTTPException, status
 
 from app.constants.workout_types.garmin import get_unified_workout_type
 from app.database import DbSession
@@ -14,6 +17,7 @@ from app.schemas.model_crud.activities import (
 from app.schemas.providers.garmin import ActivityJSON as GarminActivityJSON
 from app.services.event_record_service import event_record_service
 from app.services.providers.templates.base_workouts import BaseWorkoutsTemplate
+from app.services.storage import raw_fit as raw_fit_storage
 from app.utils.dates import offset_to_iso
 from app.utils.structured_logging import log_structured
 
@@ -272,6 +276,88 @@ class GarminWorkouts(BaseWorkoutsTemplate):
     ) -> dict:
         """Get detailed activity data from Garmin API."""
         return self._make_api_request(db, user_id, f"/wellness-api/rest/activities/{activity_id}")
+
+    def download_fit_from_callback(
+        self,
+        db: DbSession,
+        user_id: UUID,
+        callback_url: str,
+    ) -> bytes:
+        """Download a FIT file from a Garmin activityFiles PING callback URL.
+
+        Garmin signs the callback URL with a short TTL; the call must use the
+        user's OAuth 2.0 bearer token. Returns the raw FIT bytes.
+        """
+        from app.config import settings
+
+        return self._make_api_request(
+            db,
+            user_id,
+            callback_url,
+            response_format="bytes",
+            timeout_seconds=settings.suunto_fit_endpoint_timeout_seconds,
+        )
+
+    def export_workout_fit(self, db: DbSession, user_id: UUID, workout_key: str) -> bytes:
+        """Return the FIT bytes for a previously-ingested Garmin activity.
+
+        Garmin callback URLs expire, so the bytes must already be cached in
+        L2. When persistence is disabled or the activity was never fetched,
+        raises 425 so the caller can retry (Garmin may re-PING) or 502 to
+        signal the file is permanently unreachable.
+        """
+        if not raw_fit_storage.is_enabled():
+            raise HTTPException(
+                status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                detail={
+                    "message": "Garmin FIT export requires L2 storage (PERSIST_RAW_FIT=true)",
+                    "provider": "garmin",
+                },
+            )
+        cached = raw_fit_storage.get_fit_bytes("garmin", user_id, workout_key)
+        if cached is None:
+            raise HTTPException(
+                status_code=status.HTTP_425_TOO_EARLY,
+                detail={
+                    "message": "Garmin FIT not yet ingested for this activity",
+                    "provider": "garmin",
+                    "retry_after_seconds": 30,
+                },
+            )
+        return cached
+
+    def ingest_fit_for_activity(
+        self,
+        db: DbSession,
+        user_id: UUID,
+        activity_id: str,
+        callback_url: str,
+    ) -> int:
+        """Download FIT bytes from the callback URL and persist them to L2.
+
+        Returns the byte count written, or 0 when L2 is disabled.
+        """
+        if not raw_fit_storage.is_enabled():
+            log_structured(
+                logger,
+                "warning",
+                "Skipping Garmin FIT ingest: L2 storage disabled",
+                provider="garmin",
+                user_id=str(user_id),
+                activity_id=activity_id,
+            )
+            return 0
+
+        fit_bytes = self.download_fit_from_callback(db, user_id, callback_url)
+        sha256_hex = hashlib.sha256(fit_bytes).hexdigest()
+        raw_fit_storage.put_fit_bytes(
+            "garmin",
+            user_id,
+            activity_id,
+            fit_bytes,
+            sha256_hex=sha256_hex,
+        )
+        return len(fit_bytes)
 
     def process_push_activities(
         self,

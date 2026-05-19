@@ -119,8 +119,10 @@ def make_authenticated_request(
     if headers:
         request_headers.update(headers)
 
-    # Make request with retry logic for rate limiting
-    url = f"{api_base_url}{endpoint}"
+    # Make request with retry logic for rate limiting.
+    # When endpoint is already an absolute URL (e.g. a pre-signed callback URL
+    # Garmin sends in activityFiles PING notifications), skip the base concat.
+    url = endpoint if endpoint.startswith(("http://", "https://")) else f"{api_base_url}{endpoint}"
 
     for attempt in range(MAX_RETRIES + 1):
         try:

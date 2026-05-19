@@ -92,6 +92,13 @@ class TestWorkoutExportEndpoints:
         event_record = EventRecordFactory(data_source=data_source, external_id=WORKOUT_KEY, category="workout")
         return user, data_source, event_record
 
+    def _seed_garmin_workout(self, db: Session) -> tuple:
+        """Create user + garmin data_source + event_record."""
+        user = UserFactory()
+        data_source = DataSourceFactory(user=user, provider=ProviderName.GARMIN, source="garmin")
+        event_record = EventRecordFactory(data_source=data_source, external_id=WORKOUT_KEY, category="workout")
+        return user, data_source, event_record
+
     def test_export_json_unauthorized(self, client: TestClient, db: Session) -> None:
         """Test that missing API key returns 401."""
         # Arrange
@@ -362,3 +369,61 @@ class TestWorkoutExportEndpoints:
         put_mock.assert_called_once()
         _, kwargs = put_mock.call_args
         assert kwargs["sha256_hex"] == hashlib.sha256(FIT_BYTES).hexdigest()
+
+    def test_export_json_garmin_l2_hit_returns_bytes(
+        self,
+        client: TestClient,
+        db: Session,
+        mock_fit_parser: MagicMock,
+        mock_fit_cache: MagicMock,
+    ) -> None:
+        """Test that Garmin serves the FIT from L2 (callback URL is one-shot, no live pull)."""
+        # Arrange
+        user, _, _ = self._seed_garmin_workout(db)
+        api_key = ApiKeyFactory()
+
+        with patch(
+            "app.api.routes.v1.workout_export.raw_fit_storage.get_fit_bytes",
+            return_value=FIT_BYTES,
+        ):
+            # Act
+            response = client.get(
+                f"/api/v1/users/{user.id}/workouts/{WORKOUT_KEY}/export",
+                headers={"X-Open-Wearables-API-Key": api_key.id},
+            )
+
+        # Assert
+        assert response.status_code == 200
+        body = response.json()
+        assert body["provider"] == "garmin"
+
+    def test_export_json_garmin_l2_miss_returns_425(
+        self,
+        client: TestClient,
+        db: Session,
+    ) -> None:
+        """Test that Garmin returns 425 when the FIT hasn't been ingested yet (L2 miss)."""
+        # Arrange
+        user, _, _ = self._seed_garmin_workout(db)
+        api_key = ApiKeyFactory()
+
+        with (
+            patch("app.api.routes.v1.workout_export.raw_fit_storage.get_fit_bytes", return_value=None),
+            patch(
+                "app.services.providers.garmin.workouts.raw_fit_storage.is_enabled",
+                return_value=True,
+            ),
+            patch(
+                "app.services.providers.garmin.workouts.raw_fit_storage.get_fit_bytes",
+                return_value=None,
+            ),
+        ):
+            # Act
+            response = client.get(
+                f"/api/v1/users/{user.id}/workouts/{WORKOUT_KEY}/export",
+                headers={"X-Open-Wearables-API-Key": api_key.id},
+            )
+
+        # Assert
+        assert response.status_code == 425
+        assert response.json()["detail"]["provider"] == "garmin"
