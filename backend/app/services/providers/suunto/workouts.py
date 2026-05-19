@@ -293,7 +293,7 @@ class SuuntoWorkouts(BaseWorkoutsTemplate):
         return self._make_api_request(
             db,
             user_id,
-            f"/workout/exportFit/{workout_key}",
+            f"/v3/workouts/{workout_key}/fit",
             headers=headers,
             response_format="bytes",
             timeout_seconds=settings.suunto_fit_endpoint_timeout_seconds,
