@@ -23,6 +23,7 @@ from app.middlewares import add_access_log_middleware, add_cors_middleware, add_
 from app.services import raw_payload_storage
 from app.services.endpoint_usage import endpoint_usage
 from app.services.outgoing_webhooks import svix as svix_service
+from app.services.storage import raw_fit as raw_fit_storage
 from app.utils.exceptions import DatetimeParseError, handle_exception
 
 # Configure logging to use stdout instead of stderr
@@ -71,6 +72,12 @@ raw_payload_storage.configure(
     s3_endpoint_url=settings.raw_payload_s3_endpoint_url,
     fit_files_enabled=settings.store_fit_files,
     transport_enabled=settings.sdk_payload_s3_offload,
+)
+raw_fit_storage.configure(
+    enabled=settings.persist_raw_fit,
+    s3_bucket=settings.raw_payload_bucket,
+    s3_prefix=settings.raw_fit_s3_prefix,
+    s3_endpoint_url=settings.raw_payload_s3_endpoint_url,
 )
 
 add_cors_middleware(api)

@@ -296,6 +296,15 @@ class Settings(BaseSettings):
     # not a reliability dependency.
     sdk_payload_s3_offload: bool = False
 
+    # WORKOUT FIT EXPORT
+    suunto_fit_endpoint_timeout_seconds: int = 10
+    # Read-through L2 cache for the on-demand export, distinct from store_fit_files,
+    # which only archives files during ingestion.
+    persist_raw_fit: bool = False
+    raw_fit_s3_prefix: str = "raw-fit"
+    fit_export_cache_ttl_seconds: int = 3600  # L1 Redis TTL
+    fit_export_max_fields: int = 16  # whitelist guard
+
     # SVIX WEBHOOK SETTINGS
     # Master switch for outgoing webhooks. Off by default so deployments without Svix
     # (no svix-server container) never build a client, emit, or register event types.

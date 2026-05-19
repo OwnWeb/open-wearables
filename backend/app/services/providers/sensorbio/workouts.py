@@ -13,7 +13,7 @@ from app.schemas.model_crud.activities import (
     EventRecordMetrics,
 )
 from app.services.event_record_service import event_record_service
-from app.services.providers.api_client import make_authenticated_request
+from app.services.providers.api_client import ResponseFormat, make_authenticated_request
 from app.services.providers.templates.base_workouts import BaseWorkoutsTemplate
 from app.services.raw_payload_storage import store_raw_payload
 from app.utils.structured_logging import log_structured
@@ -48,6 +48,8 @@ class SensorBioWorkouts(BaseWorkoutsTemplate):
         params: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
         json_data: dict[str, Any] | None = None,
+        response_format: ResponseFormat | None = None,
+        timeout_seconds: float | None = None,
     ) -> Any:
         """Make an authenticated request using HTTP/2 and store raw payload.
 
@@ -71,6 +73,8 @@ class SensorBioWorkouts(BaseWorkoutsTemplate):
             headers=headers,
             json_data=json_data,
             http2=True,
+            response_format=response_format,
+            timeout_seconds=timeout_seconds,
         )
         store_raw_payload(
             source="api_response",

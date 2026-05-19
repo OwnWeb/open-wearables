@@ -3,7 +3,7 @@
 import logging
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 import httpx
@@ -15,6 +15,8 @@ from app.integrations.redis_client import get_redis_client
 from app.repositories import UserConnectionRepository
 from app.services.providers.templates.base_oauth import BaseOAuthTemplate
 from app.utils.structured_logging import log_structured
+
+ResponseFormat = Literal["json", "bytes", "ignore"]
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +112,8 @@ def make_authenticated_request(
     json_data: dict[str, Any] | None = None,
     expect_json: bool = True,
     http2: bool = False,
+    response_format: ResponseFormat | None = None,
+    timeout_seconds: float | None = None,
 ) -> Any:
     """Make authenticated request to provider API.
 
@@ -129,14 +133,17 @@ def make_authenticated_request(
             Used by providers whose API is RPC-over-POST, e.g. Withings.
         headers: Additional headers (Authorization header will be added automatically)
         json_data: JSON body for POST/PUT requests
-        expect_json: Whether to parse response as JSON (default True).
-            Set to False for endpoints that return empty bodies (e.g., 202 Accepted).
         http2: Enable HTTP/2 for this request (default False). Requires the h2
             package (installed via httpx[http2]).  Use for providers that require
             HTTP/2, e.g. Sensor Bio.  Other providers are unaffected.
+        expect_json: Legacy flag (default True). When False maps to response_format="ignore".
+            Prefer response_format on new call sites.
+        response_format: "json" (parse + provider-error sniff), "bytes" (raw body), or
+            "ignore" (return {status_code, accepted}). Overrides expect_json when set.
+        timeout_seconds: httpx request timeout. Defaults to settings.provider_request_timeout_seconds.
 
     Returns:
-        Any: API response JSON, or dict with status_code if expect_json=False
+        Any: parsed JSON, raw bytes, or {status_code, accepted} dict.
 
     Raises:
         HTTPException: If API request fails
@@ -144,13 +151,17 @@ def make_authenticated_request(
     if form_data is not None and json_data is not None:
         raise ValueError("form_data and json_data are mutually exclusive")
 
+    resolved_format: ResponseFormat = response_format or ("json" if expect_json else "ignore")
+    request_timeout = timeout_seconds if timeout_seconds is not None else settings.provider_request_timeout_seconds
+
     # Get valid token (will auto-refresh if needed)
     access_token = _get_valid_token(db, user_id, provider_name, connection_repo, oauth)
 
     # Prepare headers
+    accept_header = "application/octet-stream" if resolved_format == "bytes" else "application/json"
     request_headers = {
         "Authorization": f"Bearer {access_token}",
-        "Accept": "application/json",
+        "Accept": accept_header,
     }
     if headers:
         request_headers.update(headers)
@@ -168,7 +179,7 @@ def make_authenticated_request(
                     params=params or {},
                     data=form_data,
                     json=json_data,
-                    timeout=settings.provider_request_timeout_seconds,
+                    timeout=request_timeout,
                 )
 
             # Handle 429 rate limiting with retry
@@ -202,12 +213,14 @@ def make_authenticated_request(
 
             response.raise_for_status()
 
-            # Handle non-JSON responses (e.g., 202 Accepted with empty body)
-            if not expect_json:
+            if resolved_format == "ignore":
                 return {
                     "status_code": response.status_code,
                     "accepted": response.status_code == 202,
                 }
+
+            if resolved_format == "bytes":
+                return response.content
 
             result = response.json()
 
