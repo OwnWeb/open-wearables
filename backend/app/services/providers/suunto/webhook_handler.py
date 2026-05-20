@@ -240,8 +240,8 @@ class SuuntoWebhookHandler(BaseWebhookHandler):
                 raise ValueError(f"Unexpected Suunto workout payload shape: {type(payload_detail).__name__}")
             saved = 0
             for raw in workouts_list:
-                self.suunto_workouts.process_push_activity(db, user_id, raw)
-                saved += 1
+                if self.suunto_workouts.process_push_activity(db, user_id, raw) is not None:
+                    saved += 1
             return {"status": "saved", "workout_key": str(workout_key), "saved_count": saved}
         except IntegrityError:
             db.rollback()
