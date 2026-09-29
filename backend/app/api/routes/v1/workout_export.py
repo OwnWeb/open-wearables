@@ -41,7 +41,7 @@ factory = ProviderFactory()
 
 ALLOWED_FIELDS: frozenset[str] = frozenset({*CANONICAL_FIELDS.keys(), LATLNG_FIELD})
 FIT_CONTENT_TYPE = "application/vnd.ant.fit"
-PROVIDERS_WITH_FIT: frozenset[str] = frozenset({ProviderName.SUUNTO.value})
+PROVIDERS_WITH_FIT: frozenset[str] = frozenset({ProviderName.SUUNTO.value, ProviderName.GARMIN.value})
 
 
 @router.get(

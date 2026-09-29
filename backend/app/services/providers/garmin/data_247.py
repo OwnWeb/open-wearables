@@ -1,5 +1,6 @@
 """Garmin 247 Data implementation for sleep, dailies, epochs, and body composition."""
 
+import hashlib
 import logging
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -35,6 +36,7 @@ from app.services.providers.garmin.coverage import ACTIVITY_SAMPLE_SERIES, DAILI
 from app.services.providers.templates.base_247_data import Base247DataTemplate
 from app.services.providers.templates.base_oauth import BaseOAuthTemplate
 from app.services.raw_payload_storage import store_fit_file
+from app.services.storage import raw_fit as raw_fit_storage
 from app.utils.dates import offset_to_iso
 from app.utils.structured_logging import log_structured
 
@@ -1983,6 +1985,16 @@ class Garmin247Data(Base247DataTemplate):
                             user_id=str(user_id),
                             activity_id=activity_id,
                         )
+                        # The callback URL expires, so the export endpoint can only serve
+                        # Garmin FITs from L2. Keyed by activityId, i.e. the workout external_id.
+                        if activity_id and raw_fit_storage.is_enabled():
+                            raw_fit_storage.put_fit_bytes(
+                                self.provider_name,
+                                user_id,
+                                activity_id,
+                                fit_bytes,
+                                sha256_hex=hashlib.sha256(fit_bytes).hexdigest(),
+                            )
                         try:
                             fit_result = parse_fit_file(fit_bytes, user_id, source=self.provider_name)
                         except Exception as e:
