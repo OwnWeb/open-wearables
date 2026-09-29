@@ -1,5 +1,6 @@
 """Tests for Garmin 247 data implementation."""
 
+import hashlib
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
@@ -14,6 +15,7 @@ from app.repositories.data_point_series_repository import WriteCounts
 from app.repositories.event_record_detail_repository import EventRecordDetailRepository
 from app.repositories.user_connection_repository import UserConnectionRepository
 from app.schemas.enums.series_types import SeriesType
+from app.services.fit_parser import FitParseResult
 from app.services.providers.garmin.data_247 import Garmin247Data
 from app.services.providers.garmin.oauth import GarminOAuth
 from tests.factories import UserConnectionFactory, UserFactory
@@ -858,3 +860,51 @@ class TestGarmin247Data:
 
         mock_bulk_create.assert_called_once()
         assert count == 1
+
+    def test_process_items_batch_activity_files_caches_fit_in_l2(self, garmin_247: Garmin247Data, db: Session) -> None:
+        """Test that the downloaded FIT is kept in L2 under the activityId, the workout external_id."""
+        user = UserFactory()
+        fit_bytes = b"\x0e\x10garmin-fit"
+        item = {
+            "userId": "garmin-user-1",
+            "summaryId": "21000000001-file",
+            "fileType": "FIT",
+            "callbackURL": "https://apis.garmin.com/wellness-api/rest/activityFile?id=21000000001&token=abc",
+            "startTimeInSeconds": 1790578800,
+            "activityId": 21000000001,
+            "activityName": "Morning Ride",
+            "manual": False,
+        }
+
+        with (
+            patch("app.services.providers.garmin.data_247.download_binary_content", return_value=fit_bytes),
+            patch("app.services.providers.garmin.data_247.parse_fit_file", return_value=FitParseResult()),
+            patch("app.services.providers.garmin.data_247.raw_fit_storage.is_enabled", return_value=True),
+            patch("app.services.providers.garmin.data_247.raw_fit_storage.put_fit_bytes") as put_mock,
+        ):
+            garmin_247.process_items_batch(db, user.id, "activityFiles", [item])
+
+        put_mock.assert_called_once_with(
+            "garmin",
+            user.id,
+            "21000000001",
+            fit_bytes,
+            sha256_hex=hashlib.sha256(fit_bytes).hexdigest(),
+        )
+
+    def test_process_items_batch_activity_files_skips_l2_when_disabled(
+        self, garmin_247: Garmin247Data, db: Session
+    ) -> None:
+        """Test that no L2 write happens when raw FIT persistence is off."""
+        user = UserFactory()
+        item = {"fileType": "FIT", "callbackURL": "https://apis.garmin.com/f", "activityId": 21000000001}
+
+        with (
+            patch("app.services.providers.garmin.data_247.download_binary_content", return_value=b"fit"),
+            patch("app.services.providers.garmin.data_247.parse_fit_file", return_value=FitParseResult()),
+            patch("app.services.providers.garmin.data_247.raw_fit_storage.is_enabled", return_value=False),
+            patch("app.services.providers.garmin.data_247.raw_fit_storage.put_fit_bytes") as put_mock,
+        ):
+            garmin_247.process_items_batch(db, user.id, "activityFiles", [item])
+
+        put_mock.assert_not_called()

@@ -4,6 +4,8 @@ from decimal import Decimal
 from typing import Any, Iterable
 from uuid import UUID, uuid4
 
+from fastapi import HTTPException, status
+
 from app.constants.entry_source import get_unified_garmin_entry_source
 from app.constants.workout_types.garmin import get_unified_workout_type
 from app.database import DbSession
@@ -15,6 +17,7 @@ from app.schemas.model_crud.activities import (
 from app.schemas.providers.garmin import ActivityJSON as GarminActivityJSON
 from app.services.event_record_service import event_record_service
 from app.services.providers.templates.base_workouts import BaseWorkoutsTemplate
+from app.services.storage import raw_fit as raw_fit_storage
 from app.utils.dates import offset_to_iso
 from app.utils.structured_logging import log_structured
 
@@ -280,6 +283,30 @@ class GarminWorkouts(BaseWorkoutsTemplate):
     ) -> dict:
         """Get detailed activity data from Garmin API."""
         return self._make_api_request(db, user_id, f"/wellness-api/rest/activities/{activity_id}")
+
+    def export_workout_fit(self, db: DbSession, user_id: UUID, workout_key: str) -> bytes:
+        """Return the FIT cached in L2 when the activityFiles notification was processed.
+
+        Garmin has no pull-by-id FIT endpoint and its callback URLs expire, so L2 is the
+        only source. 415 when L2 is disabled, 425 while the file has not arrived yet
+        (Garmin can send it hours after the activity).
+        """
+        if not raw_fit_storage.is_enabled():
+            raise HTTPException(
+                status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                detail={
+                    "message": "Garmin FIT export requires L2 storage (PERSIST_RAW_FIT=true)",
+                    "provider": self.provider_name,
+                },
+            )
+        fit_bytes = raw_fit_storage.get_fit_bytes(self.provider_name, user_id, workout_key)
+        if fit_bytes is None:
+            raise HTTPException(
+                status_code=status.HTTP_425_TOO_EARLY,
+                detail={"message": "Garmin FIT file not received yet", "provider": self.provider_name},
+                headers={"Retry-After": "300"},
+            )
+        return fit_bytes
 
     def process_push_activities(
         self,

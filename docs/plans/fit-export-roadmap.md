@@ -12,7 +12,7 @@ rollout per provider. The endpoint resolves the provider from
 | Provider | Status | Branch | Notes |
 |---|---|---|---|
 | Suunto | Shipped on `ow-fixes` | `feat/workout-fit-export` (merged) | Live pull from `/v3/workouts/{workoutKey}/fit`. Verified end-to-end on staging. |
-| Garmin | PR ready for review | `feat/garmin-fit-export` | activityFiles PING handler downloads + stores to L2; `/export` reads L2 only. Requires `PERSIST_RAW_FIT=true`. |
+| Garmin | PR ready for review | `feat/garmin-fit-l2-cache` | Upstream activityFiles download also writes L2; `/export` reads L2 only. Requires `PERSIST_RAW_FIT=true`. |
 | Polar | PR ready for review | `feat/polar-fit-export` | Live pull from `/v3/exercises/{exerciseId}/fit`. Beta endpoint; older M-series watches lack FIT support. |
 | Wahoo | Not started | n/a | Requires provider adoption first (OAuth, webhook, workouts service). |
 | Coros | Not started | n/a | Requires provider adoption first. |
@@ -35,12 +35,20 @@ under the `activityFiles` payload key. Each notification carries a
 signed callback URL (short TTL) and the partner OAuth 2.0 bearer is
 used to fetch the bytes.
 
-The `feat/garmin-fit-export` branch:
-- Adds `garmin/handlers/activity_files.py` that downloads + stores L2
-  on PING arrival.
-- Wires the webhook dispatcher to fan out `activityFiles` items.
-- `GarminWorkouts.export_workout_fit` reads L2 only (returns 425 on
-  miss, 415 when L2 is disabled).
+Upstream already downloads and parses that FIT in the `activityFiles`
+branch of `Garmin247Data.process_items_batch`. Its `store_fit_file`
+archive is keyed by storage date, so the export cannot find it from a
+single activity. The `feat/garmin-fit-l2-cache` branch:
+- Writes the downloaded bytes to L2 right after
+  `download_binary_content`, keyed by `activityId`. That is also the
+  workout `external_id`, so `/export` resolves with the key consumers
+  receive in `workout.created`.
+- `GarminWorkouts.export_workout_fit` reads L2 only: 425 (with
+  `Retry-After`) while the file has not arrived, 415 when L2 is
+  disabled. Garmin can send the file hours after the activity.
+
+The May `feat/garmin-fit-export` branch added its own `activityFiles`
+handler. It would duplicate the upstream download: do not reapply it.
 
 Deploy requirement: `PERSIST_RAW_FIT=true` (otherwise no FIT survives
 the callback URL TTL).

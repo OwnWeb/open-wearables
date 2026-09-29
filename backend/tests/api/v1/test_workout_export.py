@@ -27,6 +27,7 @@ from tests.utils import api_key_headers
 
 FIT_BYTES = b"\x0e\x10raw-suunto-fit-bytes"
 WORKOUT_KEY = "WK-12345"
+GARMIN_ACTIVITY_ID = "21000000001"
 
 
 def _build_parsed_fit() -> ParsedFit:
@@ -363,3 +364,102 @@ class TestWorkoutExportEndpoints:
         put_mock.assert_called_once()
         _, kwargs = put_mock.call_args
         assert kwargs["sha256_hex"] == hashlib.sha256(FIT_BYTES).hexdigest()
+
+    def _seed_garmin_workout(self, db: Session) -> tuple:
+        """Create user + garmin data_source + event_record keyed by the Garmin activityId."""
+        user = UserFactory()
+        data_source = DataSourceFactory(user=user, provider=ProviderName.GARMIN, source="garmin")
+        event_record = EventRecordFactory(data_source=data_source, external_id=GARMIN_ACTIVITY_ID, category="workout")
+        return user, data_source, event_record
+
+    def test_export_garmin_serves_fit_from_l2(
+        self,
+        client: TestClient,
+        db: Session,
+        mock_fit_cache: MagicMock,
+    ) -> None:
+        """Test that a Garmin FIT cached by the activityFiles notification is exported."""
+        # Arrange
+        user, _, _ = self._seed_garmin_workout(db)
+        api_key = ApiKeyFactory()
+        start = datetime(2026, 9, 28, 7, 0, 0, tzinfo=timezone.utc)
+        parsed = ParsedFit(
+            start_time=start,
+            end_time=start,
+            duration_seconds=0,
+            samples=[
+                Sample(t=start, elapsed_s=0, values={"heart_rate": 131, "latlng": [48.85, 2.35], "altitude": 35.2}),
+            ],
+            laps=[],
+            summary=Summary(avg_heart_rate=131, max_heart_rate=131, total_distance_m=None, total_calories=None),
+            device=Device(manufacturer="garmin", product="fenix8", serial_number=None),
+        )
+
+        with (
+            patch("app.services.storage.raw_fit.get_fit_bytes", return_value=FIT_BYTES) as get_mock,
+            patch("app.api.routes.v1.workout_export.parse_fit", return_value=parsed) as parse_mock,
+        ):
+            # Act
+            response = client.get(
+                f"/api/v1/users/{user.id}/workouts/{GARMIN_ACTIVITY_ID}/export?fields=heart_rate,latlng,altitude",
+                headers=api_key_headers(api_key.plain_key),
+            )
+
+        # Assert
+        assert response.status_code == 200
+        body = response.json()
+        assert body["provider"] == "garmin"
+        assert body["samples"] == [
+            {"t": "2026-09-28T07:00:00Z", "elapsed_s": 0, "heart_rate": 131, "latlng": [48.85, 2.35], "altitude": 35.2}
+        ]
+        get_mock.assert_called_once_with("garmin", user.id, GARMIN_ACTIVITY_ID)
+        parse_mock.assert_called_once_with(FIT_BYTES, ("heart_rate", "latlng", "altitude"))
+
+    def test_export_garmin_returns_425_until_fit_arrives(
+        self,
+        client: TestClient,
+        db: Session,
+        mock_fit_cache: MagicMock,
+    ) -> None:
+        """Test that a Garmin workout whose FIT has not arrived yet returns 425, uncached."""
+        # Arrange
+        user, _, _ = self._seed_garmin_workout(db)
+        api_key = ApiKeyFactory()
+
+        with (
+            patch("app.services.storage.raw_fit.is_enabled", return_value=True),
+            patch("app.services.storage.raw_fit.get_fit_bytes", return_value=None),
+        ):
+            # Act
+            response = client.get(
+                f"/api/v1/users/{user.id}/workouts/{GARMIN_ACTIVITY_ID}/export",
+                headers=api_key_headers(api_key.plain_key),
+            )
+
+        # Assert
+        assert response.status_code == 425
+        assert response.json()["detail"]["provider"] == "garmin"
+        assert response.headers["retry-after"] == "300"
+        mock_fit_cache.set.assert_not_called()
+
+    def test_export_garmin_returns_415_when_l2_disabled(
+        self,
+        client: TestClient,
+        db: Session,
+        mock_fit_cache: MagicMock,
+    ) -> None:
+        """Test that Garmin export is unavailable without L2, since callback URLs expire."""
+        # Arrange
+        user, _, _ = self._seed_garmin_workout(db)
+        api_key = ApiKeyFactory()
+
+        with patch("app.services.storage.raw_fit.is_enabled", return_value=False):
+            # Act
+            response = client.get(
+                f"/api/v1/users/{user.id}/workouts/{GARMIN_ACTIVITY_ID}/export",
+                headers=api_key_headers(api_key.plain_key),
+            )
+
+        # Assert
+        assert response.status_code == 415
+        assert response.json()["detail"]["provider"] == "garmin"
